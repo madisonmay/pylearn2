@@ -3,6 +3,7 @@ A module containing different learning rules for use with the SGD training
 algorithm.
 """
 import numpy as np
+import warnings
 
 from theano import config
 from theano import tensor as T
@@ -11,6 +12,7 @@ from theano.compat.python2x import OrderedDict
 from pylearn2.space import NullSpace
 from pylearn2.train_extensions import TrainExtension
 from pylearn2.utils import sharedX
+from pylearn2.utils import wraps
 
 
 class LearningRule():
@@ -263,7 +265,14 @@ class RMSProp(LearningRule):
         Decay constant similar to that used in AdaDelta and Momentum methods.
     max_scaling: float, optional
         Restrict the RMSProp gradient scaling coefficient to values
-        below `max_scaling`. 
+        below `max_scaling`.
+
+    Notes
+    -----
+    An instance of this LearningRule should only be used with one
+    TrainingAlgorithm, and its get_updates method should be called
+    only once. This is required in order to make the monitoring
+    channels correctly report the moving averages.
     """
 
     def __init__(self, decay=0.9, max_scaling=1e5):
@@ -271,23 +280,56 @@ class RMSProp(LearningRule):
         assert max_scaling > 0 
         self.decay = sharedX(decay, 'decay')
         self.epsilon = 1. / max_scaling
+        self.mean_square_grads = []
 
+    @wraps(LearningRule.add_channels_to_monitor)
     def add_channels_to_monitor(self, monitor, monitoring_dataset):
         """
-        .. todo::
-
-            WRITEME
+        The channels added are the min, mean, and max of the
+        mean_square_grad of each parameter.
         """
-        # TODO: add channels worth monitoring
+        for mean_square_grad in self.mean_square_grads:
+            # min
+            monitor.add_channel(
+                    name=(mean_square_grad.name + '_min'),
+                    ipt=None,
+                    val=mean_square_grad.min(),
+                    data_specs=(NullSpace(), ''),
+                    dataset=monitoring_dataset)
+            # max
+            monitor.add_channel(
+                    name=(mean_square_grad.name + '_max'),
+                    ipt=None,
+                    val=mean_square_grad.max(),
+                    data_specs=(NullSpace(), ''),
+                    dataset=monitoring_dataset)
+            # mean
+            monitor.add_channel(
+                    name=(mean_square_grad.name + '_mean'),
+                    ipt=None,
+                    val=mean_square_grad.mean(),
+                    data_specs=(NullSpace(), ''),
+                    dataset=monitoring_dataset)
         return
 
+    @wraps(LearningRule.get_updates)
     def get_updates(self, learning_rate, grads, lr_scalers=None):
         """
-        .. todo::
-
-            WRITEME
+        Notes
+        -----
+        This method has the side effect of storing the moving average
+        of the square gradient in self.mean_square_grads. This is
+        necessary in order for the monitoring channels to be able
+        to track the value of these moving averages.
+        Therefore, this method should only get called once for each
+        instance of RMSProp.
         """
-        updates = OrderedDict()    
+        if self.mean_square_grads:
+            warnings.warn("Calling get_updates more than once on an instance "
+                    "of RMSProp may make the monitored values incorrect.")
+            self.mean_square_grads = []
+
+        updates = OrderedDict()
         for param in grads:
 
             # mean_squared_grad := E[g^2]_{t-1}
@@ -295,6 +337,10 @@ class RMSProp(LearningRule):
 
             if param.name is not None:
                 mean_square_grad.name = 'mean_square_grad_' + param.name
+
+            # Store that variable in self.mean_square_grads, so we can
+            # monitor it.
+            self.mean_square_grads.append(mean_square_grad)
 
             # Accumulate gradient
             new_mean_squared_grad = \
