@@ -74,7 +74,7 @@ class LearningRule():
                                        lr_scalers.get(param, 1.) * grad)
         """
         raise NotImplementedError(str(type(self)) + " does not implement "
-                "get_updates.")
+                                  "get_updates.")
 
 
 class Momentum(LearningRule):
@@ -121,7 +121,7 @@ class Momentum(LearningRule):
             assert param.dtype == inc.dtype
             assert grad.dtype == param.dtype
             if param.name is not None:
-                inc.name = 'inc_'+param.name
+                inc.name = 'inc_' + param.name
             updated_inc = self.momentum * inc -\
                 learning_rate * lr_scalers.get(param, 1.) * grad
             assert updated_inc.dtype == inc.dtype
@@ -184,7 +184,7 @@ class MomentumAdjustor(TrainExtension):
             alpha = 0.
         if alpha > 1.:
             alpha = 1.
-        return self._init_momentum * (1.-alpha)+alpha*self.final_momentum
+        return self._init_momentum * (1 - alpha) + alpha * self.final_momentum
 
 
 class AdaDelta(LearningRule):
@@ -233,8 +233,8 @@ class AdaDelta(LearningRule):
 
             # Accumulate gradient
             new_mean_squared_grad = \
-                    self.decay * mean_square_grad +\
-                    (1 - self.decay) * T.sqr(grads[param])
+                self.decay * mean_square_grad + \
+                (1 - self.decay) * T.sqr(grads[param])
 
             # Compute update
             epsilon = lr_scalers.get(param, 1.) * learning_rate
@@ -244,8 +244,8 @@ class AdaDelta(LearningRule):
 
             # Accumulate updates
             new_mean_square_dx = \
-                    self.decay * mean_square_dx + \
-                    (1 - self.decay) * T.sqr(delta_x_t)
+                self.decay * mean_square_dx + \
+                (1 - self.decay) * T.sqr(delta_x_t)
 
             # Apply update
             updates[mean_square_grad] = new_mean_squared_grad
@@ -253,6 +253,7 @@ class AdaDelta(LearningRule):
             updates[param] = param + delta_x_t
 
         return updates
+
 
 class RMSProp(LearningRule):
     """
@@ -277,7 +278,7 @@ class RMSProp(LearningRule):
 
     def __init__(self, decay=0.9, max_scaling=1e5):
         assert 0. <= decay < 1.
-        assert max_scaling > 0 
+        assert max_scaling > 0
         self.decay = sharedX(decay, 'decay')
         self.epsilon = 1. / max_scaling
         self.mean_square_grads = []
@@ -288,26 +289,19 @@ class RMSProp(LearningRule):
         The channels added are the min, mean, and max of the
         mean_square_grad of each parameter.
         """
+
+        channel_mapping = {
+            '_min': T.min,
+            '_max': T.max,
+            '_mean': T.mean
+        }
+
         for mean_square_grad in self.mean_square_grads:
-            # min
-            monitor.add_channel(
-                    name=(mean_square_grad.name + '_min'),
+            for suffix, op in channel_mapping.items():
+                monitor.add_channel(
+                    name=(mean_square_grad.name + suffix),
                     ipt=None,
-                    val=mean_square_grad.min(),
-                    data_specs=(NullSpace(), ''),
-                    dataset=monitoring_dataset)
-            # max
-            monitor.add_channel(
-                    name=(mean_square_grad.name + '_max'),
-                    ipt=None,
-                    val=mean_square_grad.max(),
-                    data_specs=(NullSpace(), ''),
-                    dataset=monitoring_dataset)
-            # mean
-            monitor.add_channel(
-                    name=(mean_square_grad.name + '_mean'),
-                    ipt=None,
-                    val=mean_square_grad.mean(),
+                    val=op(mean_square_grad),
                     data_specs=(NullSpace(), ''),
                     dataset=monitoring_dataset)
         return
@@ -326,7 +320,7 @@ class RMSProp(LearningRule):
         """
         if self.mean_square_grads:
             warnings.warn("Calling get_updates more than once on an instance "
-                    "of RMSProp may make the monitored values incorrect.")
+                          "of RMSProp may make monitored values incorrect.")
             self.mean_square_grads = []
 
         updates = OrderedDict()
@@ -344,13 +338,14 @@ class RMSProp(LearningRule):
 
             # Accumulate gradient
             new_mean_squared_grad = \
-                    self.decay * mean_square_grad +\
-                    (1 - self.decay) * T.sqr(grads[param])
+                self.decay * mean_square_grad + \
+                (1 - self.decay) * T.sqr(grads[param])
 
             # Compute update
             scaled_lr = lr_scalers.get(param, 1.) * learning_rate
             rms_grad_t = T.sqrt(new_mean_squared_grad)
-            delta_x_t = - scaled_lr * grads[param] / T.maximum(rms_grad_t, self.epsilon)
+            rms_grad_t = T.maximum(rms_grad_t, self.epsilon)
+            delta_x_t = - scaled_lr * grads[param] / rms_grad_t
 
             # Apply update
             updates[mean_square_grad] = new_mean_squared_grad
