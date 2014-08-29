@@ -143,11 +143,8 @@ class Train(object):
             while True:
                 if self.exceeded_time_budget(t0, time_budget):
                     break
-                continue_learning = \
-                    self.algorithm.continue_learning(self.model)
                 extension_continue = self.run_callbacks_and_monitoring()
-                assert continue_learning in [True, False, 0, 1]
-                if not continue_learning or not extension_continue:
+                if not extension_continue:
                     break
 
                 rval = self.model.train_all(dataset=self.dataset)
